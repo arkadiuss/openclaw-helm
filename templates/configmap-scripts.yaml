@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openclaw.fullname" . }}-config
+  labels:
+    {{- include "openclaw.labels" . | nindent 4 }}
+data:
+  managed-config.json: |
+    {
+      "gateway": {
+        "bind": "lan",
+        "auth": {
+          "rateLimit": {
+            "maxAttempts": 10,
+            "windowMs": 60000,
+            "lockoutMs": 300000
+          }
+        }
+        {{- if .Values.openclaw.controlUiAllowedOrigins }},
+        "controlUi": {
+          "allowedOrigins": {{ .Values.openclaw.controlUiAllowedOrigins | toJson }}
+        }
+        {{- end }}
+        {{- if .Values.openclaw.trustedProxies }},
+        "trustedProxies": {{ .Values.openclaw.trustedProxies | toJson }}
+        {{- end }}
+      }
+      {{- if .Values.browser.enabled }},
+      "browser": {
+        "enabled": true,
+        "attachOnly": true,
+        "headless": true,
+        "noSandbox": true,
+        "defaultProfile": "remote",
+        "profiles": {
+          "remote": {
+            "cdpUrl": "http://localhost:9222",
+            "color": "#FF4500"
+          }
+        }
+      }
+      {{- end }}
+    }
+
+  init.sh: |
+    #!/bin/sh
+    set -e
+
+    CONFIG_DIR="/home/node/.openclaw"
+    CONFIG_FILE="$CONFIG_DIR/openclaw.json"
+    MANAGED="/config/managed-config.json"
+
+    mkdir -p "$CONFIG_DIR"
+    chmod 700 "$CONFIG_DIR"
+
+    # Seed config on first boot only — never overwrite existing config
+    if [ ! -f "$CONFIG_FILE" ]; then
+      cp "$MANAGED" "$CONFIG_FILE"
+      # Inject gateway auth token into initial config
+      if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
+        node -e "
+          const fs = require('fs');
+          const c = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf8'));
+          c.gateway.auth = c.gateway.auth || {};
+          c.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
+          fs.writeFileSync('$CONFIG_FILE', JSON.stringify(c, null, 2));
+        "
+      fi
+    fi
+
+    chmod 600 "$CONFIG_FILE"
+
+  {{- if .Values.podman.enabled }}
+  podman-entrypoint.sh: |
+    #!/bin/sh
+    set -e
+
+    mkdir -p /home/podman/.config/containers
+    cat > /home/podman/.config/containers/storage.conf <<EOF
+    [storage]
+    driver = "vfs"
+    EOF
+
+    exec podman system service --time=0 unix:///run/podman/podman.sock
+  {{- end }}

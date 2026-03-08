@@ -90,6 +90,8 @@ openclaw:
   gatewayTokenSecretKey: "gateway-token"
   # Allowed origins for the control UI (e.g. ["https://openclaw.example.com"])
   controlUiAllowedOrigins: []
+  # Trusted proxy CIDRs for X-Forwarded-For header processing (e.g. ["10.200.0.0/24"])
+  trustedProxies: []
   # Extra environment variables
   env: []
 
@@ -116,6 +118,24 @@ podman:
   resources: {}
   # Size limit for ephemeral container/image storage
   storageSize: 10Gi
+
+# Headless Chromium sidecar for browser tool support (CDP on port 9222)
+browser:
+  enabled: false
+  image:
+    repository: chromedp/headless-shell
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 999
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+  resources: {}
+  # Shared memory size for Chromium (mounted as tmpfs at /dev/shm)
+  shmSize: 1Gi
 
 # Additional volumes
 volumes: []

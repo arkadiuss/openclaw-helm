@@ -14,10 +14,11 @@ spec:
       {{- include "openclaw.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-scripts.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "openclaw.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
@@ -37,6 +38,29 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: false
+      initContainers:
+        - name: init-config
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/config/init.sh"]
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- if .Values.openclaw.gatewayTokenSecret }}
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openclaw.gatewayTokenSecret }}
+                  key: {{ .Values.openclaw.gatewayTokenSecretKey }}
+            {{- end }}
+          volumeMounts:
+            - name: openclaw-data
+              mountPath: /home/node/.openclaw
+            - name: config
+              mountPath: /config
+              readOnly: true
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -45,36 +69,8 @@ spec:
           {{- end }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - sh
-            - -c
-            - |
-              CONFIG_DIR="/home/node/.openclaw"
-              CONFIG_FILE="$CONFIG_DIR/openclaw.json"
-              mkdir -p "$CONFIG_DIR"
-              if [ ! -f "$CONFIG_FILE" ]; then
-                echo '{}' > "$CONFIG_FILE"
-              fi
-              node -e "
-                const fs = require('fs');
-                const c = JSON.parse(fs.readFileSync('$CONFIG_FILE'));
-                c.gateway = c.gateway || {};
-                c.gateway.bind = 'lan';
-                {{- if .Values.openclaw.gatewayTokenSecret }}
-                if (process.env.OPENCLAW_GATEWAY_TOKEN) {
-                  c.gateway.auth = c.gateway.auth || {};
-                  c.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
-                }
-                {{- end }}
-                delete c.gateway.token;
-                {{- if .Values.openclaw.controlUiAllowedOrigins }}
-                c.gateway.controlUi = c.gateway.controlUi || {};
-                c.gateway.controlUi.allowedOrigins = JSON.parse(process.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS);
-                {{- end }}
-
-                fs.writeFileSync('$CONFIG_FILE', JSON.stringify(c, null, 2));
-              "
-              exec node dist/index.js gateway --allow-unconfigured
+          command: ["openclaw"]
+          args: ["gateway", "--allow-unconfigured"]
           ports:
             - name: http
               containerPort: 18789
@@ -96,10 +92,6 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.openclaw.apiKeySecret }}
                   key: {{ .Values.openclaw.apiKeySecretKey }}
-            {{- end }}
-            {{- if .Values.openclaw.controlUiAllowedOrigins }}
-            - name: OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS
-              value: {{ .Values.openclaw.controlUiAllowedOrigins | toJson | quote }}
             {{- end }}
             {{- if .Values.openclaw.gatewayTokenSecret }}
             - name: OPENCLAW_GATEWAY_TOKEN
@@ -137,16 +129,7 @@ spec:
         - name: podman
           image: "{{ .Values.podman.image.repository }}:{{ .Values.podman.image.tag }}"
           imagePullPolicy: {{ .Values.podman.image.pullPolicy }}
-          command:
-            - sh
-            - -c
-            - |
-              mkdir -p /home/podman/.config/containers
-              cat > /home/podman/.config/containers/storage.conf <<CONF
-              [storage]
-              driver = "vfs"
-              CONF
-              podman system service --time=0 unix:///run/podman/podman.sock
+          command: ["/config/podman-entrypoint.sh"]
           {{- with .Values.podman.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -160,14 +143,48 @@ spec:
               mountPath: /run/podman
             - name: podman-storage
               mountPath: /home/podman/.local/share/containers
+            - name: config
+              mountPath: /config
+              readOnly: true
+        {{- end }}
+        {{- if .Values.browser.enabled }}
+        - name: browser
+          image: "{{ .Values.browser.image.repository }}:{{ .Values.browser.image.tag }}"
+          imagePullPolicy: {{ .Values.browser.image.pullPolicy }}
+          args:
+            - --no-sandbox
+            - --disable-gpu
+            - --disable-dev-shm-usage
+            - --remote-debugging-port=9222
+          {{- with .Values.browser.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.browser.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: browser-shm
+              mountPath: /dev/shm
         {{- end }}
       volumes:
+        - name: config
+          configMap:
+            name: {{ include "openclaw.fullname" . }}-config
+            defaultMode: 0755
         {{- if .Values.podman.enabled }}
         - name: podman-socket
           emptyDir: {}
         - name: podman-storage
           emptyDir:
             sizeLimit: {{ .Values.podman.storageSize }}
+        {{- end }}
+        {{- if .Values.browser.enabled }}
+        - name: browser-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.browser.shmSize }}
         {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
