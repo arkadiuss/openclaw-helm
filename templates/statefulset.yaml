@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "openclaw.fullname" . }}
+  labels:
+    {{- include "openclaw.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ include "openclaw.fullname" . }}
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "openclaw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "openclaw.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "openclaw.serviceAccountName" . }}
+      {{- if .Values.podman.enabled }}
+      hostUsers: false
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              CONFIG_DIR="/home/node/.openclaw"
+              CONFIG_FILE="$CONFIG_DIR/openclaw.json"
+              mkdir -p "$CONFIG_DIR"
+              if [ ! -f "$CONFIG_FILE" ]; then
+                echo '{}' > "$CONFIG_FILE"
+              fi
+              node -e "
+                const fs = require('fs');
+                const c = JSON.parse(fs.readFileSync('$CONFIG_FILE'));
+                c.gateway = c.gateway || {};
+                c.gateway.bind = 'lan';
+                {{- if .Values.openclaw.gatewayTokenSecret }}
+                if (process.env.OPENCLAW_GATEWAY_TOKEN) {
+                  c.gateway.auth = c.gateway.auth || {};
+                  c.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
+                }
+                {{- end }}
+                delete c.gateway.token;
+                {{- if .Values.openclaw.controlUiAllowedOrigins }}
+                c.gateway.controlUi = c.gateway.controlUi || {};
+                c.gateway.controlUi.allowedOrigins = JSON.parse(process.env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS);
+                {{- end }}
+
+                fs.writeFileSync('$CONFIG_FILE', JSON.stringify(c, null, 2));
+              "
+              exec node dist/index.js gateway --allow-unconfigured
+          ports:
+            - name: http
+              containerPort: 18789
+              protocol: TCP
+          env:
+            {{- if .Values.podman.enabled }}
+            - name: OPENCLAW_SANDBOX
+              value: "1"
+            - name: OPENCLAW_DOCKER_SOCKET
+              value: /run/podman/podman.sock
+            {{- end }}
+            {{- if .Values.openclaw.defaultModel }}
+            - name: OPENCLAW_MODEL
+              value: {{ .Values.openclaw.defaultModel | quote }}
+            {{- end }}
+            {{- if .Values.openclaw.apiKeySecret }}
+            - name: {{ .Values.openclaw.apiKeyEnvVar }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openclaw.apiKeySecret }}
+                  key: {{ .Values.openclaw.apiKeySecretKey }}
+            {{- end }}
+            {{- if .Values.openclaw.controlUiAllowedOrigins }}
+            - name: OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS
+              value: {{ .Values.openclaw.controlUiAllowedOrigins | toJson | quote }}
+            {{- end }}
+            {{- if .Values.openclaw.gatewayTokenSecret }}
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.openclaw.gatewayTokenSecret }}
+                  key: {{ .Values.openclaw.gatewayTokenSecretKey }}
+            {{- end }}
+            {{- with .Values.openclaw.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: openclaw-data
+              mountPath: /home/node/.openclaw
+            {{- if .Values.podman.enabled }}
+            - name: podman-socket
+              mountPath: /run/podman
+            {{- end }}
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- if .Values.podman.enabled }}
+        - name: podman
+          image: "{{ .Values.podman.image.repository }}:{{ .Values.podman.image.tag }}"
+          imagePullPolicy: {{ .Values.podman.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /home/podman/.config/containers
+              cat > /home/podman/.config/containers/storage.conf <<CONF
+              [storage]
+              driver = "vfs"
+              CONF
+              podman system service --time=0 unix:///run/podman/podman.sock
+          {{- with .Values.podman.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.podman.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: podman-socket
+              mountPath: /run/podman
+            - name: podman-storage
+              mountPath: /home/podman/.local/share/containers
+        {{- end }}
+      volumes:
+        {{- if .Values.podman.enabled }}
+        - name: podman-socket
+          emptyDir: {}
+        - name: podman-storage
+          emptyDir:
+            sizeLimit: {{ .Values.podman.storageSize }}
+        {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    {{- if .Values.persistence.enabled }}
+    - metadata:
+        name: openclaw-data
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+        {{- if .Values.persistence.storageClassName }}
+        storageClassName: {{ .Values.persistence.storageClassName }}
+        {{- end }}
+        {{- if .Values.persistence.volumeName }}
+        volumeName: {{ .Values.persistence.volumeName }}
+        {{- end }}
+    {{- end }}

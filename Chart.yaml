@@ -1,0 +1,6 @@
+apiVersion: v2
+name: openclaw
+description: A Helm chart for deploying OpenClaw AI agent platform on Kubernetes with rootless Podman sandboxing
+type: application
+version: 0.1.0
+appVersion: "latest"
