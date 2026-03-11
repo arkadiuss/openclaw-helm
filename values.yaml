@@ -94,6 +94,14 @@ openclaw:
   trustedProxies: []
   # Extra environment variables
   env: []
+  # Extra openclaw.json config merged into the seed (for one-time first-boot settings)
+  # Example:
+  #   extraConfig:
+  #     agents:
+  #       defaults:
+  #         model:
+  #           primary: "anthropic/claude-sonnet-4-6"
+  extraConfig: {}
 
 # Rootless Podman sidecar for sandbox support
 # Requires Kubernetes User Namespaces (hostUsers: false, K8s >= 1.33, containerd >= 2.0, kernel >= 6.3)

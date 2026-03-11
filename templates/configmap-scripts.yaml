@@ -42,6 +42,11 @@ data:
       {{- end }}
     }
 
+  {{- if .Values.openclaw.extraConfig }}
+  extra-config.json: |
+    {{ .Values.openclaw.extraConfig | toJson }}
+  {{- end }}
+
   init.sh: |
     #!/bin/sh
     set -e
@@ -56,16 +61,30 @@ data:
     # Seed config on first boot only — never overwrite existing config
     if [ ! -f "$CONFIG_FILE" ]; then
       cp "$MANAGED" "$CONFIG_FILE"
-      # Inject gateway auth token into initial config
-      if [ -n "$OPENCLAW_GATEWAY_TOKEN" ]; then
-        node -e "
-          const fs = require('fs');
-          const c = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf8'));
+      # Deep-merge extra config and inject gateway token
+      node -e "
+        const fs = require('fs');
+        const merge = (t, s) => {
+          for (const k of Object.keys(s)) {
+            if (s[k] && typeof s[k] === 'object' && !Array.isArray(s[k])) {
+              t[k] = t[k] || {};
+              merge(t[k], s[k]);
+            } else {
+              t[k] = s[k];
+            }
+          }
+          return t;
+        };
+        const c = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf8'));
+        if (fs.existsSync('/config/extra-config.json')) {
+          merge(c, JSON.parse(fs.readFileSync('/config/extra-config.json', 'utf8')));
+        }
+        if (process.env.OPENCLAW_GATEWAY_TOKEN) {
           c.gateway.auth = c.gateway.auth || {};
           c.gateway.auth.token = process.env.OPENCLAW_GATEWAY_TOKEN;
-          fs.writeFileSync('$CONFIG_FILE', JSON.stringify(c, null, 2));
-        "
-      fi
+        }
+        fs.writeFileSync('$CONFIG_FILE', JSON.stringify(c, null, 2));
+      "
     fi
 
     chmod 600 "$CONFIG_FILE"
