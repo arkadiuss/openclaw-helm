@@ -34,8 +34,7 @@ data:
         "defaultProfile": "remote",
         "profiles": {
           "remote": {
-            "cdpUrl": "http://localhost:9222",
-            "color": "#FF4500"
+            "cdpUrl": "http://localhost:9222"
           }
         }
       }

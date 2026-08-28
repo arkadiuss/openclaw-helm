@@ -69,6 +69,14 @@ kubectl get node <node> -o jsonpath='{.status.features.userNamespaces}'
 # Should return: true
 ```
 
+### Want a stronger boundary than the Podman sidecar?
+
+The rootless Podman sandbox above isolates at the container/namespace level. If that's not enough - untrusted code from prompt injection, multi-tenant use, anything where you need a real kernel boundary - look at [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) as OpenClaw's `backend: "openshell"` sandbox option (`@openclaw/openshell-sandbox` plugin) instead of `podman.enabled` here.
+
+OpenShell is a separate, self-hosted gateway + [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) controller that provisions one pod per sandboxed agent/session on demand (created on first tool use, pruned after `agents.defaults.sandbox.prune.idleHours`, recreated on next use if it's gone), with per-sandbox L7 network policy, gVisor/Kata isolation via RuntimeClass, and a filesystem/process policy enforced by an in-pod supervisor rather than by this chart's capability drops. It composes with the rest of this chart's Gateway API routing and NetworkPolicy - it's an alternative to `podman.enabled`, not a replacement for anything else here.
+
+Deliberately not wired into this chart: it's a second control plane (its own gateway StatefulSet, the agent-sandbox CRDs/controller, a certgen Job, RBAC, per-sandbox workspace PVCs), both charts ship with no default resource requests, and neither project publishes a footprint baseline - profile it against your own cluster before relying on it. Worth it if you need the isolation; overkill if the Podman sidecar's boundary is enough.
+
 ## Quick Start
 
 ```bash

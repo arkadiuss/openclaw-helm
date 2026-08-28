@@ -39,6 +39,30 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       initContainers:
+        {{- if .Values.openshellCli.enabled }}
+        - name: openshell-cli-fetch
+          image: "{{ .Values.openshellCli.image.repository }}:{{ .Values.openshellCli.image.tag }}"
+          imagePullPolicy: {{ .Values.openshellCli.image.pullPolicy }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              VERSION="{{ .Values.openshellCli.version }}"
+              URL="https://github.com/NVIDIA/OpenShell/releases/download/v${VERSION}/openshell-x86_64-unknown-linux-musl.tar.gz"
+              TMP="$(mktemp -d)"
+              curl -fsSL -o "$TMP/openshell.tar.gz" "$URL"
+              echo "{{ .Values.openshellCli.checksum }}  $TMP/openshell.tar.gz" | sha256sum -c -
+              tar -xzf "$TMP/openshell.tar.gz" -C "$TMP" openshell
+              install -m 0755 "$TMP/openshell" /openshell-cli-bin/openshell
+              rm -rf "$TMP"
+          {{- with .Values.openshellCli.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: openshell-cli-bin
+              mountPath: /openshell-cli-bin
+        {{- end }}
         - name: init-config
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -122,6 +146,11 @@ spec:
             - name: podman-socket
               mountPath: /run/podman
             {{- end }}
+            {{- if .Values.openshellCli.enabled }}
+            - name: openshell-cli-bin
+              mountPath: {{ .Values.openshellCli.installPath }}
+              readOnly: true
+            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -185,6 +214,10 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: {{ .Values.browser.shmSize }}
+        {{- end }}
+        {{- if .Values.openshellCli.enabled }}
+        - name: openshell-cli-bin
+          emptyDir: {}
         {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
