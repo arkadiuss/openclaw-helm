@@ -173,6 +173,20 @@ volumes: []
 # Additional volume mounts for the openclaw container
 volumeMounts: []
 
+# ConfigMap content copied into the workspace by init-config, before the main
+# container starts, instead of being mounted into it. Never add a ConfigMap
+# or Secret mount under the openclaw container's workspace path directly:
+# mirror-sync sandbox backends delete and recreate the entire workspace on
+# every sync, and a mount point cannot be deleted, which corrupts the sync
+# and destroys unrelated workspace content. This copies real, unmounted,
+# node-owned files instead, refreshed on every pod start.
+#
+#   workspaceSeed:
+#     - name: reference           # unique, used as the source mount name
+#       configMap: my-configmap
+#       subPath: reference        # directory under the workspace, relative
+workspaceSeed: []
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

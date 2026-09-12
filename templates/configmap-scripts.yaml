@@ -88,6 +88,15 @@ data:
 
     chmod 600 "$CONFIG_FILE"
 
+    # Copy workspaceSeed content into the workspace as plain files, refreshed
+    # every start. Never mounted directly: a mount point cannot be deleted,
+    # which breaks mirror-sync sandbox backends that delete and recreate the
+    # workspace on every sync.
+    {{- range .Values.workspaceSeed }}
+    mkdir -p "$CONFIG_DIR/workspace/{{ .subPath }}"
+    cp -f /workspace-seed/{{ .name }}/* "$CONFIG_DIR/workspace/{{ .subPath }}/"
+    {{- end }}
+
   {{- if .Values.podman.enabled }}
   podman-entrypoint.sh: |
     #!/bin/sh

@@ -85,6 +85,11 @@ spec:
             - name: config
               mountPath: /config
               readOnly: true
+            {{- range .Values.workspaceSeed }}
+            - name: workspace-seed-{{ .name }}
+              mountPath: /workspace-seed/{{ .name }}
+              readOnly: true
+            {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -218,6 +223,11 @@ spec:
         {{- if .Values.openshellCli.enabled }}
         - name: openshell-cli-bin
           emptyDir: {}
+        {{- end }}
+        {{- range .Values.workspaceSeed }}
+        - name: workspace-seed-{{ .name }}
+          configMap:
+            name: {{ .configMap }}
         {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
