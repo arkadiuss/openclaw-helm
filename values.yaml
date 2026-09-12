@@ -145,10 +145,47 @@ browser:
   # Shared memory size for Chromium (mounted as tmpfs at /dev/shm)
   shmSize: 1Gi
 
+# Sideloads the openshell CLI (github.com/NVIDIA/OpenShell) into the openclaw
+# container via an initContainer, for agents.defaults.sandbox.backend:
+# "openshell". Downloads the pinned, checksum-verified static binary release
+# rather than fetching it at agent runtime - same provisioning-time model as
+# the podman/browser sidecar images above. Point
+# plugins.entries.openshell.config.command in extraConfig at
+# "{{ .Values.openshellCli.installPath }}/openshell".
+openshellCli:
+  enabled: false
+  # OpenShell release version. Must match a real GitHub release tag
+  # (github.com/NVIDIA/OpenShell/releases) with an
+  # openshell-x86_64-unknown-linux-musl.tar.gz asset.
+  version: "0.0.106"
+  # sha256 of that asset, from the release's openshell-checksums-sha256.txt.
+  # Verified before extraction; the initContainer fails closed on mismatch.
+  checksum: "d1a885a91b3e5aaa006c36aca95dc78bed0638c1ba1a79b55f1da93211b8a0a0"
+  installPath: /opt/openshell/bin
+  image:
+    repository: curlimages/curl
+    tag: "8.11.1"
+    pullPolicy: IfNotPresent
+  resources: {}
+
 # Additional volumes
 volumes: []
 # Additional volume mounts for the openclaw container
 volumeMounts: []
+
+# ConfigMap content copied into the workspace by init-config, before the main
+# container starts, instead of being mounted into it. Never add a ConfigMap
+# or Secret mount under the openclaw container's workspace path directly:
+# mirror-sync sandbox backends delete and recreate the entire workspace on
+# every sync, and a mount point cannot be deleted, which corrupts the sync
+# and destroys unrelated workspace content. This copies real, unmounted,
+# node-owned files instead, refreshed on every pod start.
+#
+#   workspaceSeed:
+#     - name: reference           # unique, used as the source mount name
+#       configMap: my-configmap
+#       subPath: reference        # directory under the workspace, relative
+workspaceSeed: []
 
 nodeSelector: {}
 tolerations: []
