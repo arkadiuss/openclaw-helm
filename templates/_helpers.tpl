@@ -60,3 +60,13 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+The agent workspace root. Nothing may be mounted under this path: a
+mirror-sync sandbox backend deletes and recreates the whole workspace on
+every sync and cannot delete a mount point. Kept in step with CONFIG_DIR in
+configmap-scripts.yaml.
+*/}}
+{{- define "openclaw.workspacePath" -}}
+/home/node/.openclaw/workspace
+{{- end }}

@@ -1,0 +1,15 @@
+{{- if .Values.openshellPolicy.enabled }}
+{{- $workspace := include "openclaw.workspacePath" . }}
+{{- if hasPrefix $workspace .Values.openshellPolicy.mountPath }}
+{{- fail (printf "openshellPolicy.mountPath (%s) is under the workspace root (%s). A mirror-sync sandbox backend deletes and recreates the workspace every sync and cannot delete a mount point, which corrupts the sync and destroys workspace content. Mount it elsewhere." .Values.openshellPolicy.mountPath $workspace) }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openclaw.fullname" . }}-openshell-policy
+  labels:
+    {{- include "openclaw.labels" . | nindent 4 }}
+data:
+  {{ base .Values.openshellPolicy.mountPath }}: |
+    {{- toYaml .Values.openshellPolicy.policy | nindent 4 }}
+{{- end }}

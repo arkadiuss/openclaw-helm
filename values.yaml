@@ -168,6 +168,59 @@ openshellCli:
     pullPolicy: IfNotPresent
   resources: {}
 
+# OpenShell sandbox policy, rendered into a ConfigMap and mounted into the
+# openclaw container for the openshell CLI to read at sandbox-create time.
+# Point plugins.entries.openshell.config.policy in extraConfig at mountPath.
+#
+# The chart owns the plumbing and a working baseline; callers supply
+# network_policies, which are specific to their own environment. Helm merges
+# maps, so adding network_policies below leaves filesystem_policy intact.
+#
+# Changing the policy rolls the pod: the rendered ConfigMap is hashed into the
+# pod template. A subPath mount would not pick up a ConfigMap update otherwise.
+openshellPolicy:
+  enabled: false
+  # Must be outside the workspace root, which is enforced at template time.
+  # See the warning on workspaceSeed below for what a mount there does.
+  mountPath: /etc/openclaw/openshell-policy.yaml
+  policy:
+    version: 1
+    # A working baseline, not a security boundary to rely on as-is. OpenShell's
+    # own implicit default omits /dev/null, which git opens on every invocation,
+    # so git fails with a permission error that points nowhere near Landlock.
+    # Landlock reads this as a strict allowlist: a path's own permission bits
+    # are irrelevant, and anything not listed is denied.
+    #
+    # Remove once OpenShell or the OpenClaw plugin ships a default that works.
+    filesystem_policy:
+      include_workdir: true
+      read_only:
+        - /usr
+        - /lib
+        - /etc
+        - /var/log
+        - /proc
+        - /dev/urandom
+      read_write:
+        - /tmp
+        - /dev/null
+    # Without at least one entry here the sandbox has no network access at all,
+    # not unrestricted access. Each entry is scoped to the binaries it names.
+    #   network_policies:
+    #     my_api:
+    #       name: Example API
+    #       endpoints:
+    #         - host: api.example.com
+    #           port: 443
+    #           protocol: rest
+    #           rules:
+    #             - allow:
+    #                 method: GET
+    #                 path: /v1/**
+    #       binaries:
+    #         - path: /usr/bin/curl
+    network_policies: {}
+
 # Additional volumes
 volumes: []
 # Additional volume mounts for the openclaw container
